@@ -3,26 +3,24 @@ const socket = io();
 let localStream;
 let peerConnection;
 let currentPartnerId = null;
+let pendingCandidates = [];
 
-// वर्किंग STUN और TURN सर्वर्स (अलग-अलग 4G/Wi-Fi फ़ायरवॉल को बायपास करने के लिए)
+// Clean & Verified STUN/TURN Configuration (Max 3 Servers to prevent slowdown)
 const config = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' },
-        { urls: 'stun:global.stun.twilio.com:3478' },
         {
             urls: [
-                "turn:relay1.expressturn.com:3478",
-                "turn:relay1.expressturn.com:3478?transport=udp",
-                "turn:relay1.expressturn.com:3478?transport=tcp"
+                "turn:rel.metered.ca:80",
+                "turn:rel.metered.ca:443",
+                "turn:rel.metered.ca:443?transport=tcp"
             ],
-            username: "0000000020786311",
-            credential: "freeTURNserver123!"
+            username: "0ba08670c5ee918eb64ebbc3",
+            credential: "8I+9UTo9sN0fI/4v"
         }
-    ]
+    ],
+    iceCandidatePoolSize: 10
 };
 
 const localVideo = document.getElementById('localVideo');
@@ -47,11 +45,14 @@ async function initCamera() {
 
 function resetConnection() {
     if (peerConnection) {
+        peerConnection.ontrack = null;
+        peerConnection.onicecandidate = null;
         peerConnection.close();
         peerConnection = null;
     }
     remoteVideo.srcObject = null;
     currentPartnerId = null;
+    pendingCandidates = [];
 }
 
 function createPeerConnection(partnerId) {
@@ -65,14 +66,21 @@ function createPeerConnection(partnerId) {
 
     peerConnection.ontrack = (event) => {
         if (event.streams && event.streams[0]) {
-            remoteVideo.srcObject = event.streams[0];
+            if (remoteVideo.srcObject !== event.streams[0]) {
+                remoteVideo.srcObject = event.streams[0];
+                remoteVideo.play().catch(e => console.log("Auto-play blocked or aborted:", e));
+            }
         }
     };
 
     peerConnection.onicecandidate = (event) => {
-        if (event.candidate && partnerId) {
-            socket.emit('signal', { target: partnerId, signal: { candidate: event.candidate } });
+        if (event.candidate && currentPartnerId) {
+            socket.emit('signal', { target: currentPartnerId, signal: { candidate: event.candidate } });
         }
+    };
+
+    peerConnection.oniceconnectionstatechange = () => {
+        console.log("ICE Connection State:", peerConnection.iceConnectionState);
     };
 }
 
@@ -119,29 +127,48 @@ socket.on('match-found', async ({ partnerId, initiate }) => {
     createPeerConnection(partnerId);
 
     if (initiate) {
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        socket.emit('signal', { target: partnerId, signal: { offer: offer } });
+        try {
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            socket.emit('signal', { target: partnerId, signal: { offer: offer } });
+        } catch (err) {
+            console.error("Error creating offer:", err);
+        }
     }
 });
 
 socket.on('signal', async ({ sender, signal }) => {
-    if (!peerConnection && sender) {
+    if (!peerConnection) {
         currentPartnerId = sender;
         createPeerConnection(sender);
     }
 
-    const targetId = sender || currentPartnerId;
+    try {
+        if (signal.offer) {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.offer));
+            
+            while (pendingCandidates.length) {
+                const cand = pendingCandidates.shift();
+                await peerConnection.addIceCandidate(cand);
+            }
 
-    if (signal.offer) {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.offer));
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        socket.emit('signal', { target: targetId, signal: { answer: answer } });
-    } else if (signal.answer) {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.answer));
-    } else if (signal.candidate) {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            socket.emit('signal', { target: sender, signal: { answer: answer } });
+
+        } else if (signal.answer) {
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.answer));
+
+        } else if (signal.candidate) {
+            const candidate = new RTCIceCandidate(signal.candidate);
+            if (peerConnection.remoteDescription && peerConnection.remoteDescription.type) {
+                await peerConnection.addIceCandidate(candidate);
+            } else {
+                pendingCandidates.push(candidate);
+            }
+        }
+    } catch (err) {
+        console.error("Signal error:", err);
     }
 });
 
