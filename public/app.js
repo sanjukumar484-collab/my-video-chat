@@ -5,24 +5,6 @@ let peerConnection;
 let currentPartnerId = null;
 let pendingCandidates = [];
 
-// Clean & Verified STUN/TURN Configuration (Max 3 Servers to prevent slowdown)
-const config = {
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        {
-            urls: [
-                "turn:rel.metered.ca:80",
-                "turn:rel.metered.ca:443",
-                "turn:rel.metered.ca:443?transport=tcp"
-            ],
-            username: "0ba08670c5ee918eb64ebbc3",
-            credential: "8I+9UTo9sN0fI/4v"
-        }
-    ],
-    iceCandidatePoolSize: 10
-};
-
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const startBtn = document.getElementById('startBtn');
@@ -30,6 +12,23 @@ const nextBtn = document.getElementById('nextBtn');
 const sendBtn = document.getElementById('sendBtn');
 const messageInput = document.getElementById('messageInput');
 const chatBox = document.getElementById('chat-box');
+
+// Metered API से Dynamic ICE Servers लाने का फंक्शन
+async function getIceServers() {
+    try {
+        const response = await fetch("https://freevideochat.metered.live/api/v1/turn/credentials");
+        const iceServers = await response.json();
+        return {
+            iceServers: iceServers,
+            iceCandidatePoolSize: 10
+        };
+    } catch (error) {
+        console.error("Error fetching TURN credentials, falling back to STUN:", error);
+        return {
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        };
+    }
+}
 
 async function initCamera() {
     if (!localStream) {
@@ -55,7 +54,8 @@ function resetConnection() {
     pendingCandidates = [];
 }
 
-function createPeerConnection(partnerId) {
+async function createPeerConnection(partnerId) {
+    const config = await getIceServers();
     peerConnection = new RTCPeerConnection(config);
 
     if (localStream) {
@@ -68,7 +68,7 @@ function createPeerConnection(partnerId) {
         if (event.streams && event.streams[0]) {
             if (remoteVideo.srcObject !== event.streams[0]) {
                 remoteVideo.srcObject = event.streams[0];
-                remoteVideo.play().catch(e => console.log("Auto-play blocked or aborted:", e));
+                remoteVideo.play().catch(e => console.log("Auto-play error:", e));
             }
         }
     };
@@ -124,7 +124,7 @@ function appendMessage(sender, msg) {
 socket.on('match-found', async ({ partnerId, initiate }) => {
     appendMessage('System', 'Connected with a stranger!');
     currentPartnerId = partnerId;
-    createPeerConnection(partnerId);
+    await createPeerConnection(partnerId);
 
     if (initiate) {
         try {
@@ -132,7 +132,7 @@ socket.on('match-found', async ({ partnerId, initiate }) => {
             await peerConnection.setLocalDescription(offer);
             socket.emit('signal', { target: partnerId, signal: { offer: offer } });
         } catch (err) {
-            console.error("Error creating offer:", err);
+            console.error("Offer error:", err);
         }
     }
 });
@@ -140,7 +140,7 @@ socket.on('match-found', async ({ partnerId, initiate }) => {
 socket.on('signal', async ({ sender, signal }) => {
     if (!peerConnection) {
         currentPartnerId = sender;
-        createPeerConnection(sender);
+        await createPeerConnection(sender);
     }
 
     try {
