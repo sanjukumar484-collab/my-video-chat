@@ -4,10 +4,29 @@ let localStream;
 let peerConnection;
 let currentPartnerId = null;
 
+// TURN और STUN सर्वर्स (अलग-अलग नेटवर्क/फ़ायरवॉल के बीच वीडियो स्ट्रीम चालू रखने के लिए)
 const config = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        {
+            urls: "turn:openrelay.metered.ca:80",
+            username: "openrelayproject",
+            credential: "openrelayproject"
+        },
+        {
+            urls: "turn:openrelay.metered.ca:443",
+            username: "openrelayproject",
+            credential: "openrelayproject"
+        },
+        {
+            urls: "turn:openrelay.metered.ca:443?transport=tcp",
+            username: "openrelayproject",
+            credential: "openrelayproject"
+        }
     ]
 };
 
@@ -19,7 +38,7 @@ const sendBtn = document.getElementById('sendBtn');
 const messageInput = document.getElementById('messageInput');
 const chatBox = document.getElementById('chat-box');
 
-// 1. कैमरा शुरू करें
+// 1. कैमरा और माइक चालू करना
 async function initCamera() {
     if (!localStream) {
         try {
@@ -32,7 +51,7 @@ async function initCamera() {
     }
 }
 
-// 2. कनेक्शन रीसेट
+// 2. पुराना कनेक्शन रीसेट करना
 function resetConnection() {
     if (peerConnection) {
         peerConnection.close();
@@ -65,7 +84,7 @@ function createPeerConnection(partnerId) {
     };
 }
 
-// 4. Buttons Events
+// 4. बटन इवेंट्स
 startBtn.addEventListener('click', async () => {
     await initCamera();
     resetConnection();
@@ -81,7 +100,7 @@ nextBtn.addEventListener('click', async () => {
     socket.emit('next-partner');
 });
 
-// 5. Messaging Logic
+// 5. टेक्स्ट मैसेजिंग
 sendBtn.addEventListener('click', sendMessage);
 messageInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendMessage();
@@ -104,7 +123,7 @@ function appendMessage(sender, msg) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// 6. Socket Signal Handling (Fixed Partner Logic)
+// 6. सॉकेट सिग्नलिंग और डेटा शेयरिंग
 socket.on('match-found', async ({ partnerId, initiate }) => {
     appendMessage('System', 'Connected with a stranger!');
     currentPartnerId = partnerId;
