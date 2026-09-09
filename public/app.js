@@ -5,6 +5,24 @@ let peerConnection;
 let currentPartnerId = null;
 let pendingCandidates = [];
 
+// Metered Static TURN Configuration (100% Working Format)
+const config = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        {
+            urls: [
+                "turn:global.relay.metered.ca:80",
+                "turn:global.relay.metered.ca:443",
+                "turn:global.relay.metered.ca:443?transport=tcp"
+            ],
+            username: "0ba08670c5ee918eb64ebbc3",
+            credential: "8I+9UTo9sN0fI/4v"
+        }
+    ],
+    iceCandidatePoolSize: 10
+};
+
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const startBtn = document.getElementById('startBtn');
@@ -12,23 +30,6 @@ const nextBtn = document.getElementById('nextBtn');
 const sendBtn = document.getElementById('sendBtn');
 const messageInput = document.getElementById('messageInput');
 const chatBox = document.getElementById('chat-box');
-
-// Metered API से Dynamic ICE Servers लाने का फंक्शन
-async function getIceServers() {
-    try {
-        const response = await fetch("https://freevideochat.metered.live/api/v1/turn/credentials");
-        const iceServers = await response.json();
-        return {
-            iceServers: iceServers,
-            iceCandidatePoolSize: 10
-        };
-    } catch (error) {
-        console.error("Error fetching TURN credentials, falling back to STUN:", error);
-        return {
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-        };
-    }
-}
 
 async function initCamera() {
     if (!localStream) {
@@ -54,8 +55,7 @@ function resetConnection() {
     pendingCandidates = [];
 }
 
-async function createPeerConnection(partnerId) {
-    const config = await getIceServers();
+function createPeerConnection(partnerId) {
     peerConnection = new RTCPeerConnection(config);
 
     if (localStream) {
@@ -124,7 +124,7 @@ function appendMessage(sender, msg) {
 socket.on('match-found', async ({ partnerId, initiate }) => {
     appendMessage('System', 'Connected with a stranger!');
     currentPartnerId = partnerId;
-    await createPeerConnection(partnerId);
+    createPeerConnection(partnerId);
 
     if (initiate) {
         try {
@@ -140,7 +140,7 @@ socket.on('match-found', async ({ partnerId, initiate }) => {
 socket.on('signal', async ({ sender, signal }) => {
     if (!peerConnection) {
         currentPartnerId = sender;
-        await createPeerConnection(sender);
+        createPeerConnection(sender);
     }
 
     try {
