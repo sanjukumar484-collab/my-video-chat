@@ -5,22 +5,20 @@ let peerConnection;
 let currentPartnerId = null;
 let pendingCandidates = [];
 
-// Metered Static TURN Configuration (100% Working Format)
+// Optimized Configuration: Removed excess servers to fix Firefox warning and connection drop
 const config = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
         {
             urls: [
                 "turn:global.relay.metered.ca:80",
-                "turn:global.relay.metered.ca:443",
-                "turn:global.relay.metered.ca:443?transport=tcp"
+                "turn:global.relay.metered.ca:443"
             ],
             username: "0ba08670c5ee918eb64ebbc3",
             credential: "8I+9UTo9sN0fI/4v"
         }
     ],
-    iceCandidatePoolSize: 10
+    iceCandidatePoolSize: 2
 };
 
 const localVideo = document.getElementById('localVideo');
@@ -47,6 +45,7 @@ function resetConnection() {
     if (peerConnection) {
         peerConnection.ontrack = null;
         peerConnection.onicecandidate = null;
+        peerConnection.oniceconnectionstatechange = null;
         peerConnection.close();
         peerConnection = null;
     }
@@ -81,6 +80,9 @@ function createPeerConnection(partnerId) {
 
     peerConnection.oniceconnectionstatechange = () => {
         console.log("ICE Connection State:", peerConnection.iceConnectionState);
+        if (peerConnection.iceConnectionState === 'failed' || peerConnection.iceConnectionState === 'disconnected') {
+            console.log("Attempting ICE restart or handling failure...");
+        }
     };
 }
 
