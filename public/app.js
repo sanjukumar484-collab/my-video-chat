@@ -7,6 +7,7 @@ let pendingCandidates = [];
 
 // Metered Active Credentials Configuration
 const config = {
+    iconst config = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         {
@@ -15,13 +16,12 @@ const config = {
                 "turn:global.relay.metered.ca:443",
                 "turn:global.relay.metered.ca:443?transport=tcp"
             ],
-            username: "0ba08670c5ee918eb64ebbc3",
-            credential: "8I+9UTo9sN0fI/4v"
+            username: "67d481c3b7e81c5eb2810038",
+            credential: "0fDpGQXtZRW4Dau"
         }
     ],
     iceCandidatePoolSize: 10
 };
-
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const startBtn = document.getElementById('startBtn');
