@@ -1,184 +1,142 @@
 const socket = io();
 
-const localVideo = document.getElementById("localVideo");
-const remoteVideo = document.getElementById("remoteVideo");
-
-const startBtn = document.getElementById("startBtn");
-const muteBtn = document.getElementById("muteBtn");
-const cameraBtn = document.getElementById("cameraBtn");
-const skipBtn = document.getElementById("skipBtn");
-
-const statusText = document.getElementById("status");
-
 let localStream;
+let remoteStream;
 let peerConnection;
-let partnerId;
 
-const configuration = {
+const config = {
     iceServers: [
-        {
-            urls: "stun:stun.l.google.com:19302"
-        }
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
     ]
 };
 
-async function startCamera() {
-    localStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-    });
+const localVideo = document.getElementById('localVideo');
+const remoteVideo = document.getElementById('remoteVideo');
+const startBtn = document.getElementById('startBtn');
+const nextBtn = document.getElementById('nextBtn');
+const sendBtn = document.getElementById('sendBtn');
+const messageInput = document.getElementById('messageInput');
+const chatBox = document.getElementById('chat-box');
 
-    localVideo.srcObject = localStream;
-
-    muteBtn.disabled = false;
-    cameraBtn.disabled = false;
+// 1. कैमरा स्टार्ट करें
+async function initCamera() {
+    if (!localStream) {
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            localVideo.srcObject = localStream;
+        } catch (err) {
+            alert('Camera and Microphone permissions are required!');
+            console.error(err);
+        }
+    }
 }
 
-async function createConnection(isCaller) {
-    peerConnection = new RTCPeerConnection(configuration);
+// 2. कनेक्शन रीसेट (पुराने पार्टनर को डिस्कनेक्ट करने के लिए)
+function resetConnection() {
+    if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+    }
+    remoteVideo.srcObject = null;
+}
 
-    localStream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, localStream);
-    });
+// 3. WebRTC Peer Connection बनाना
+function createPeerConnection(partnerId) {
+    peerConnection = new RTCPeerConnection(config);
 
-    peerConnection.ontrack = event => {
-        remoteVideo.srcObject = event.streams[0];
-    };
+    // लोकल स्ट्रीम ट्रैक जोड़ें
+    if (localStream) {
+        localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+        });
+    }
 
-    peerConnection.onicecandidate = event => {
-        if (event.candidate) {
-            socket.emit("signal", {
-                to: partnerId,
-                data: {
-                    type: "candidate",
-                    candidate: event.candidate
-                }
-            });
+    // रिमोट वीडियो रिसीव करें
+    peerConnection.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+            remoteVideo.srcObject = event.streams[0];
         }
     };
 
-    if (isCaller) {
+    // ICE Candidates भेजना
+    peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+            socket.emit('signal', { target: partnerId, signal: { candidate: event.candidate } });
+        }
+    };
+}
+
+// 4. Buttons Events
+startBtn.addEventListener('click', async () => {
+    await initCamera();
+    appendMessage('System', 'Searching for a stranger...');
+    socket.emit('find-partner');
+});
+
+nextBtn.addEventListener('click', async () => {
+    resetConnection();
+    await initCamera();
+    chatBox.innerHTML = '';
+    appendMessage('System', 'Finding a new stranger...');
+    socket.emit('next-partner');
+});
+
+// 5. Messaging Logic
+sendBtn.addEventListener('click', sendMessage);
+messageInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendMessage();
+});
+
+function sendMessage() {
+    const text = messageInput.value.trim();
+    if (text !== '') {
+        appendMessage('You', text);
+        socket.emit('send-message', text);
+        messageInput.value = '';
+    }
+}
+
+function appendMessage(sender, msg) {
+    const p = document.createElement('p');
+    p.style.margin = '5px 0';
+    p.innerHTML = `<strong>${sender}:</strong> ${msg}`;
+    chatBox.appendChild(p);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+// 6. Socket Handling
+socket.on('match-found', async ({ partnerId, initiate }) => {
+    appendMessage('System', 'Connected with a stranger!');
+    createPeerConnection(partnerId);
+
+    if (initiate) {
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
-
-        socket.emit("signal", {
-            to: partnerId,
-            data: {
-                type: "offer",
-                offer
-            }
-        });
+        socket.emit('signal', { target: partnerId, signal: { offer: offer } });
     }
-}
-
-startBtn.onclick = async () => {
-    try {
-        await startCamera();
-        statusText.innerText = "Finding someone...";
-
-        startBtn.disabled = true;
-        skipBtn.disabled = false;
-
-        socket.emit("findPartner");
-    } catch (error) {
-        console.error(error);
-        statusText.innerText = "Camera/Microphone permission is required.";
-    }
-};
-
-socket.on("waiting", () => {
-    statusText.innerText = "Waiting for another person...";
 });
 
-socket.on("matched", async ({ partner }) => {
-    partnerId = partner;
-    statusText.innerText = "Connected!";
+socket.on('signal', async ({ signal }) => {
+    if (!peerConnection) return;
 
-    const isCaller = socket.id < partnerId;
-    await createConnection(isCaller);
-});
-
-socket.on("signal", async ({ from, data }) => {
-    partnerId = from;
-
-    if (!peerConnection) {
-        await createConnection(false);
-    }
-
-    if (data.type === "offer") {
-        await peerConnection.setRemoteDescription(
-            new RTCSessionDescription(data.offer)
-        );
-
+    if (signal.offer) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.offer));
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
-
-        socket.emit("signal", {
-            to: from,
-            data: {
-                type: "answer",
-                answer
-            }
-        });
-    } else if (data.type === "answer") {
-        await peerConnection.setRemoteDescription(
-            new RTCSessionDescription(data.answer)
-        );
-    } else if (data.type === "candidate") {
-        try {
-            await peerConnection.addIceCandidate(
-                new RTCIceCandidate(data.candidate)
-            );
-        } catch (error) {
-            console.error(error);
-        }
+        socket.emit('signal', { target: socket.partnerId, signal: { answer: answer } });
+    } else if (signal.answer) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.answer));
+    } else if (signal.candidate) {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
     }
 });
 
-skipBtn.onclick = () => {
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-
-    remoteVideo.srcObject = null;
-    partnerId = null;
-
-    statusText.innerText = "Finding next person...";
-    socket.emit("skip");
-};
-
-socket.on("partnerSkipped", () => {
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-
-    remoteVideo.srcObject = null;
-    statusText.innerText = "The other person skipped. Finding someone...";
+socket.on('receive-message', (msg) => {
+    appendMessage('Stranger', msg);
 });
 
-// Auto Reconnect ऑन पार्टनर डिस्कनेक्ट
-socket.on("partnerDisconnected", () => {
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-
-    remoteVideo.srcObject = null;
-    partnerId = null;
-    statusText.innerText = "Partner disconnected. Finding new user...";
-    socket.emit("findPartner");
+socket.on('partner-disconnected', () => {
+    appendMessage('System', 'Stranger disconnected.');
+    resetConnection();
 });
-
-muteBtn.onclick = () => {
-    const track = localStream.getAudioTracks()[0];
-    track.enabled = !track.enabled;
-    muteBtn.innerText = track.enabled ? "🎤 Mute" : "🔇 Unmute";
-};
-
-cameraBtn.onclick = () => {
-    const track = localStream.getVideoTracks()[0];
-    track.enabled = !track.enabled;
-    cameraBtn.innerText = track.enabled ? "📷 Camera" : "🚫 Camera";
-};
