@@ -5,16 +5,14 @@ let peerConnection;
 let currentPartnerId = null;
 let pendingCandidates = [];
 
-// Metered Static TURN Configuration (100% Working Format)
+// केवल 1 STUN और 1 TURN सर्वर (फास्ट कनेक्शन के लिए)
 const config = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
         {
             urls: [
                 "turn:global.relay.metered.ca:80",
-                "turn:global.relay.metered.ca:443",
-                "turn:global.relay.metered.ca:443?transport=tcp"
+                "turn:global.relay.metered.ca:443"
             ],
             username: "0ba08670c5ee918eb64ebbc3",
             credential: "8I+9UTo9sN0fI/4v"
