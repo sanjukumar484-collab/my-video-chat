@@ -4,7 +4,7 @@ let localStream;
 let peerConnection;
 let currentPartnerId = null;
 
-// TURN और STUN सर्वर्स (अलग-अलग नेटवर्क/फ़ायरवॉल के बीच वीडियो स्ट्रीम चालू रखने के लिए)
+// वर्किंग STUN और TURN सर्वर्स (अलग-अलग 4G/Wi-Fi फ़ायरवॉल को बायपास करने के लिए)
 const config = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -12,20 +12,15 @@ const config = {
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' },
         {
-            urls: "turn:openrelay.metered.ca:80",
-            username: "openrelayproject",
-            credential: "openrelayproject"
-        },
-        {
-            urls: "turn:openrelay.metered.ca:443",
-            username: "openrelayproject",
-            credential: "openrelayproject"
-        },
-        {
-            urls: "turn:openrelay.metered.ca:443?transport=tcp",
-            username: "openrelayproject",
-            credential: "openrelayproject"
+            urls: [
+                "turn:relay1.expressturn.com:3478",
+                "turn:relay1.expressturn.com:3478?transport=udp",
+                "turn:relay1.expressturn.com:3478?transport=tcp"
+            ],
+            username: "0000000020786311",
+            credential: "freeTURNserver123!"
         }
     ]
 };
@@ -38,7 +33,6 @@ const sendBtn = document.getElementById('sendBtn');
 const messageInput = document.getElementById('messageInput');
 const chatBox = document.getElementById('chat-box');
 
-// 1. कैमरा और माइक चालू करना
 async function initCamera() {
     if (!localStream) {
         try {
@@ -51,7 +45,6 @@ async function initCamera() {
     }
 }
 
-// 2. पुराना कनेक्शन रीसेट करना
 function resetConnection() {
     if (peerConnection) {
         peerConnection.close();
@@ -61,7 +54,6 @@ function resetConnection() {
     currentPartnerId = null;
 }
 
-// 3. WebRTC Peer Connection बनाना
 function createPeerConnection(partnerId) {
     peerConnection = new RTCPeerConnection(config);
 
@@ -84,7 +76,6 @@ function createPeerConnection(partnerId) {
     };
 }
 
-// 4. बटन इवेंट्स
 startBtn.addEventListener('click', async () => {
     await initCamera();
     resetConnection();
@@ -100,7 +91,6 @@ nextBtn.addEventListener('click', async () => {
     socket.emit('next-partner');
 });
 
-// 5. टेक्स्ट मैसेजिंग
 sendBtn.addEventListener('click', sendMessage);
 messageInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendMessage();
@@ -123,7 +113,6 @@ function appendMessage(sender, msg) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// 6. सॉकेट सिग्नलिंग और डेटा शेयरिंग
 socket.on('match-found', async ({ partnerId, initiate }) => {
     appendMessage('System', 'Connected with a stranger!');
     currentPartnerId = partnerId;
