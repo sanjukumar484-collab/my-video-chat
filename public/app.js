@@ -1,8 +1,8 @@
 const socket = io();
 
 let localStream;
-let remoteStream;
 let peerConnection;
+let currentPartnerId = null;
 
 const config = {
     iceServers: [
@@ -19,49 +19,47 @@ const sendBtn = document.getElementById('sendBtn');
 const messageInput = document.getElementById('messageInput');
 const chatBox = document.getElementById('chat-box');
 
-// 1. कैमरा स्टार्ट करें
+// 1. कैमरा शुरू करें
 async function initCamera() {
     if (!localStream) {
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             localVideo.srcObject = localStream;
         } catch (err) {
-            alert('Camera and Microphone permissions are required!');
+            alert('Camera and Microphone access required!');
             console.error(err);
         }
     }
 }
 
-// 2. कनेक्शन रीसेट (पुराने पार्टनर को डिस्कनेक्ट करने के लिए)
+// 2. कनेक्शन रीसेट
 function resetConnection() {
     if (peerConnection) {
         peerConnection.close();
         peerConnection = null;
     }
     remoteVideo.srcObject = null;
+    currentPartnerId = null;
 }
 
 // 3. WebRTC Peer Connection बनाना
 function createPeerConnection(partnerId) {
     peerConnection = new RTCPeerConnection(config);
 
-    // लोकल स्ट्रीम ट्रैक जोड़ें
     if (localStream) {
         localStream.getTracks().forEach(track => {
             peerConnection.addTrack(track, localStream);
         });
     }
 
-    // रिमोट वीडियो रिसीव करें
     peerConnection.ontrack = (event) => {
         if (event.streams && event.streams[0]) {
             remoteVideo.srcObject = event.streams[0];
         }
     };
 
-    // ICE Candidates भेजना
     peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
+        if (event.candidate && partnerId) {
             socket.emit('signal', { target: partnerId, signal: { candidate: event.candidate } });
         }
     };
@@ -70,6 +68,7 @@ function createPeerConnection(partnerId) {
 // 4. Buttons Events
 startBtn.addEventListener('click', async () => {
     await initCamera();
+    resetConnection();
     appendMessage('System', 'Searching for a stranger...');
     socket.emit('find-partner');
 });
@@ -105,9 +104,10 @@ function appendMessage(sender, msg) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// 6. Socket Handling
+// 6. Socket Signal Handling (Fixed Partner Logic)
 socket.on('match-found', async ({ partnerId, initiate }) => {
     appendMessage('System', 'Connected with a stranger!');
+    currentPartnerId = partnerId;
     createPeerConnection(partnerId);
 
     if (initiate) {
@@ -117,14 +117,19 @@ socket.on('match-found', async ({ partnerId, initiate }) => {
     }
 });
 
-socket.on('signal', async ({ signal }) => {
-    if (!peerConnection) return;
+socket.on('signal', async ({ sender, signal }) => {
+    if (!peerConnection && sender) {
+        currentPartnerId = sender;
+        createPeerConnection(sender);
+    }
+
+    const targetId = sender || currentPartnerId;
 
     if (signal.offer) {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.offer));
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
-        socket.emit('signal', { target: socket.partnerId, signal: { answer: answer } });
+        socket.emit('signal', { target: targetId, signal: { answer: answer } });
     } else if (signal.answer) {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.answer));
     } else if (signal.candidate) {
