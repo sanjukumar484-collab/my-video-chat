@@ -5,16 +5,16 @@ let peerConnection;
 let currentPartnerId = null;
 let pendingCandidates = [];
 
-// Metered Active Credentials Configuration
+// Metered STUN + TURN (UDP + TCP + SSL 443 for Mobile Networks)
 const config = {
-    iconst config = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         {
             urls: [
                 "turn:global.relay.metered.ca:80",
                 "turn:global.relay.metered.ca:443",
-                "turn:global.relay.metered.ca:443?transport=tcp"
+                "turn:global.relay.metered.ca:443?transport=tcp",
+                "turns:global.relay.metered.ca:443?transport=tcp"
             ],
             username: "67d481c3b7e81c5eb2810038",
             credential: "0fDpGQXtZRW4Dau"
@@ -22,6 +22,7 @@ const config = {
     ],
     iceCandidatePoolSize: 10
 };
+
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 const startBtn = document.getElementById('startBtn');
@@ -36,7 +37,7 @@ async function initCamera() {
             localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             localVideo.srcObject = localStream;
         } catch (err) {
-            alert('Camera and Microphone access required!');
+            alert('Camera and Microphone permission zaroori hai!');
             console.error(err);
         }
     }
@@ -67,19 +68,27 @@ function createPeerConnection(partnerId) {
         if (event.streams && event.streams[0]) {
             if (remoteVideo.srcObject !== event.streams[0]) {
                 remoteVideo.srcObject = event.streams[0];
-                remoteVideo.play().catch(e => console.log("Auto-play error:", e));
+                remoteVideo.play().catch(e => console.log("Playback error:", e));
             }
         }
     };
 
     peerConnection.onicecandidate = (event) => {
         if (event.candidate && currentPartnerId) {
-            socket.emit('signal', { target: currentPartnerId, signal: { candidate: event.candidate } });
+            socket.emit('signal', { 
+                target: currentPartnerId, 
+                signal: { candidate: event.candidate } 
+            });
         }
     };
 
     peerConnection.oniceconnectionstatechange = () => {
         console.log("ICE Connection State:", peerConnection.iceConnectionState);
+        if (peerConnection.iceConnectionState === 'connected') {
+            appendMessage('System', 'Video connection successful!');
+        } else if (peerConnection.iceConnectionState === 'failed') {
+            appendMessage('System', 'Connection failed. Retrying or click Next.');
+        }
     };
 }
 
@@ -120,6 +129,7 @@ function appendMessage(sender, msg) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
+// Socket Events
 socket.on('match-found', async ({ partnerId, initiate }) => {
     appendMessage('System', 'Connected with a stranger!');
     currentPartnerId = partnerId;
@@ -131,7 +141,7 @@ socket.on('match-found', async ({ partnerId, initiate }) => {
             await peerConnection.setLocalDescription(offer);
             socket.emit('signal', { target: partnerId, signal: { offer: offer } });
         } catch (err) {
-            console.error("Offer error:", err);
+            console.error("Offer creation error:", err);
         }
     }
 });
@@ -146,7 +156,8 @@ socket.on('signal', async ({ sender, signal }) => {
         if (signal.offer) {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.offer));
             
-            while (pendingCandidates.length) {
+            // Apply any queued candidates
+            while (pendingCandidates.length > 0) {
                 const cand = pendingCandidates.shift();
                 await peerConnection.addIceCandidate(cand);
             }
@@ -157,6 +168,12 @@ socket.on('signal', async ({ sender, signal }) => {
 
         } else if (signal.answer) {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.answer));
+            
+            // Apply any queued candidates
+            while (pendingCandidates.length > 0) {
+                const cand = pendingCandidates.shift();
+                await peerConnection.addIceCandidate(cand);
+            }
 
         } else if (signal.candidate) {
             const candidate = new RTCIceCandidate(signal.candidate);
@@ -167,7 +184,7 @@ socket.on('signal', async ({ sender, signal }) => {
             }
         }
     } catch (err) {
-        console.error("Signal error:", err);
+        console.error("Signal handling error:", err);
     }
 });
 
